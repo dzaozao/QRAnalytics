@@ -249,6 +249,40 @@ def parse_qc_from_text(text):
             'USP': usp
         })
     return qc_rows
+
+def parse_summary_table(table):
+    """解析 %Area Summarized by Name 表格，返回字典列表"""
+    rows_data = []
+    if not table or len(table) < 2:
+        return rows_data
+
+    header = [str(cell).strip() if cell else "" for cell in table[0]]
+    # 定位列索引
+    idx_sample = next((i for i, h in enumerate(header) if "samplename" in h.lower()), 0)
+    # Basic peaks, Acidic peaks, Main peak 可能在列名中直接给出
+    idx_basic = next((i for i, h in enumerate(header) if "basic peaks" in h.lower()), -3)
+    idx_acidic = next((i for i, h in enumerate(header) if "acidic peaks" in h.lower()), -2)
+    idx_main = next((i for i, h in enumerate(header) if "main peak" in h.lower()), -1)
+
+    for row in table[1:]:
+        if not row:
+            continue
+        max_idx = max(idx_sample, idx_basic, idx_acidic, idx_main)
+        if len(row) <= max_idx:
+            continue
+
+        sample_name = str(row[idx_sample]).strip()
+        # 过滤空白、纯数字、BLANK
+        if not sample_name or sample_name.isdigit() or sample_name.upper() == 'BLANK':
+            continue
+
+        rows_data.append({
+            'Sample Name': sample_name,
+            'Basic': safe_float(row[idx_basic]) if idx_basic < len(row) else None,
+            'Acidic': safe_float(row[idx_acidic]) if idx_acidic < len(row) else None,
+            'Main': safe_float(row[idx_main]) if idx_main < len(row) else None
+        })
+    return rows_data
 # ------------------ RP 提取 ------------------
 def extract_rp_data(pdf_path, rrt_params):
     print("开始处理PDF:", pdf_path, flush=True)
