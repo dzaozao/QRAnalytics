@@ -2497,10 +2497,18 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
     except Exception as e:
         return False, f"处理失败：{str(e)}"
 # ============ Streamlit 界面 ============
-st.set_page_config(page_title="QRAnalytics", layout="wide")
+st.set_page_config(page_title="autolab", layout="wide")
+st.logo(".venv/Lib/site-packages/streamlit/static/static/images/logo2.png",size="large")
 st.title("AutoReport")
-st.caption("仅供QR团队内部使用，未经允许请勿外传")
-
+st.caption("仅供QR团队内部使用" + " - " + "版本号：v1.0")
+st.markdown(
+    """
+    <div style="position: fixed; bottom: 10px; right: 20px; color: gray; font-size: 12px;">
+        dzaozao@hotmain.com
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 # 侧边栏：项目、检测项、参数
 projects = sorted(list(set(k[0] for k in EXTRACTOR_REGISTRY.keys())))
 assays = sorted(list(set(k[1] for k in EXTRACTOR_REGISTRY.keys())))
