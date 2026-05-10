@@ -2498,7 +2498,7 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
         return False, f"处理失败：{str(e)}"
 # ============ Streamlit 界面 ============
 st.set_page_config(page_title="autolab", layout="wide")
-st.logo(".venv/Lib/site-packages/streamlit/static/static/images/logo2.png",size="large")
+st.logo("static/logo2.png",size="large")
 st.title("AutoReport")
 st.caption("仅供QR团队内部使用" + " - " + "版本号：v1.0")
 st.markdown(
