@@ -99,8 +99,7 @@ def safe_float(x):
         return float(s) if s else None
     except:
         return None
-import decimal
-import math
+
 
 def pharmacopoeia_round(x, decimals=1):
     """
