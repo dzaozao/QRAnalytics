@@ -84,12 +84,6 @@ def inject_excel_watermark(wb_or_path):
         return False
 
 
-from datetime import datetime
-#import tkinter as tk
-#from tkinter import filedialog, messagebox, ttk
-from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, Alignment
 
 
 RRT_TOLERANCE = 0.008
