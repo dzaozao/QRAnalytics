@@ -1130,7 +1130,7 @@ def create_r_ce_excel(output_path, data, project, assay):
                 
                 # 均全局居中对齐
                 cell.alignment = Alignment(horizontal='center', vertical='center')
-#                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
     # 特定表头强制大字号和加粗
     ws_rep['A1'].font = Font(name='楷体', size=20, bold=True)
     ws_qc['A2'].font = Font(name='楷体', size=11, bold=True)
