@@ -3189,7 +3189,7 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
             if progress_callback:
                 progress_callback(100, msg)
             return True, excel_path
-        #======================R-CE数据提取======================
+        
         #====================== R-CE数据提取 ======================
         elif extractor_func == extract_r_ce_data:
             data_dict = extractor_func(pdf_path, project=extractor_kwargs.get('project'))
