@@ -3091,7 +3091,9 @@ EXTRACTOR_REGISTRY = {
     ('BF518', 'Titer'): (extract_titer_data, True),
     ('BF4262', 'Titer'): (extract_titer_data, True),
     ('BF518', 'R-CE'): (extract_r_ce_data, False),  
-    ('BF518', 'NR-CE'): (extract_nr_ce_data, False) 
+    ('BF518', 'NR-CE'): (extract_nr_ce_data, False),
+    ('BF611', 'R-CE'): (extract_r_ce_data, False),
+    ('BF611', 'NR-CE'): (extract_nr_ce_data, False),
 }
 
 def get_extractor(project, assay):
