@@ -3090,8 +3090,13 @@ EXTRACTOR_REGISTRY = {
     ('BF422', 'SEC'): (extract_sec_bf611_data, False),
     ('BF518', 'Titer'): (extract_titer_data, True),
     ('BF4262', 'Titer'): (extract_titer_data, True),
+    ('BF612001', 'Titer'): (extract_titer_data, True),
+    ('BF612001', 'SEC'): (extract_sec_data, False),
+    ('BF612001', 'N-Glycan'): (extract_nglycan_data, False),
     ('BF518', 'R-CE'): (extract_r_ce_data, False),  
     ('BF518', 'NR-CE'): (extract_nr_ce_data, False),
+    ('BF612001', 'R-CE'): (extract_r_ce_data, False),  
+    ('BF612001', 'NR-CE'): (extract_nr_ce_data, False),
     ('BF611', 'R-CE'): (extract_r_ce_data, False),
     ('BF611', 'NR-CE'): (extract_nr_ce_data, False),
 }
