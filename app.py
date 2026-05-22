@@ -1143,7 +1143,363 @@ def create_r_ce_excel(output_path, data, project, assay):
     inject_excel_watermark(wb)
     wb.save(output_path)
 
+#------------------icIEF 数据提取-------------------
+#------------------icIEF 数据提取-------------------
+def extract_icief_data(pdf_path, project=None):
+    """
+    icIEF 专用提取器：利用纯文本 Token 切分，规避表格线缺失导致的提取失败。
+    规则：
+    1) MP 行的 %Total = 主峰%
+    2) MP 行上方（不含 Mkr）的 %Total 求和 = 酸性峰
+    3) MP 行下方（不含 Mkr）的 %Total 求和 = 碱性峰
+    4) 若酸/碱无数据，返回 None（后续 Excel 写 N/D）
+    """
+    print(f"开始解析 icIEF PDF: {pdf_path}")
+    sequence_name = "Unknown"
+    qc_data = []
+    sample_data = []
+    pending_peaks = None
 
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text() or ""
+            low_text = text.lower()
+
+            # ---------- 1. 跳过 Blank 和 Lane Image ----------
+            if "blank" in low_text or "lane image" in low_text:
+                continue
+
+            # ---------- 2. 提取序列名（仅首次提取） ----------
+            if sequence_name == "Unknown" and "Batch Name" in text:
+                m = re.search(r"Batch Name\s*:?\s*([\w-]+)", text)
+                if m:
+                    sequence_name = m.group(1).strip()
+
+            # ---------- 3. 提取 Peaks 页数据 ----------
+            if "Absorbance Peaks" in text:
+                found_mp = False
+                acid_sum = 0.0
+                basic_sum = 0.0
+                acid_count = 0
+                basic_count = 0
+                mp_pI = None
+                mp_pct = None
+
+                for line in text.splitlines():
+                    parts = line.split()
+
+                    # 数据行通常以峰序号开头
+                    if not parts or not parts[0].isdigit():
+                        continue
+
+                    # Name 列可能有值（MP/Mkr），也可能为空
+                    # 有 Name: [idx, Name, Position, pI, Height, Area, %Total, ...]
+                    # 无 Name: [idx, Position, pI, Height, Area, %Total, ...]
+                    has_name = len(parts) > 1 and not re.match(r"^-?\d+(?:\.\d+)?$", parts[1])
+                    name = parts[1] if has_name else ""
+                    nums = parts[2:] if has_name else parts[1:]
+
+                    # 至少需要 Position,pI,Height,Area,%Total
+                    if len(nums) < 5:
+                        continue
+
+                    # 固定按列位取值（相对 nums）：
+                    # nums[0]=Position, nums[1]=pI, nums[2]=Height, nums[3]=Area, nums[4]=%Total
+                    pi_val = safe_float(nums[1])
+                    pct_total = safe_float(nums[4])
+
+                    # marker 不参与酸/碱峰计算
+                    if name.lower() == "mkr":
+                        continue
+
+                    # MP 行：记录主峰，并切换上下文（后续峰记入碱性）
+                    if name == "MP":
+                        found_mp = True
+                        mp_pI = pi_val
+                        mp_pct = pct_total
+                        continue
+
+                    # 其它峰：按 MP 上下归类
+                    if pct_total is None:
+                        continue
+
+                    if not found_mp:
+                        acid_sum += pct_total
+                        acid_count += 1
+                    else:
+                        basic_sum += pct_total
+                        basic_count += 1
+
+                # 若提取到了主峰，则缓存当前样品结果
+                if mp_pI is not None:
+                    pending_peaks = {
+                        "MP_pI": mp_pI,
+                        "MP_pct": mp_pct,
+                        "Acid": acid_sum if acid_count > 0 else None,
+                        "Basic": basic_sum if basic_count > 0 else None,
+                    }
+
+            # ---------- 4. 提取 Sample Information 匹配对应 Sample ID ----------
+            if pending_peaks and ("Sample ID" in text or "Sample Information" in text):
+                m = re.search(r"Sample ID\s*:?\s*(\S+)", text)
+                if m:
+                    sample_id = m.group(1).strip()
+
+                    # 再次双保险，跳过 Blank
+                    if "BLANK" in sample_id.upper():
+                        pending_peaks = None
+                        continue
+
+                    row = {
+                        "Sample ID": sample_id,
+                        "MP_pI": pending_peaks["MP_pI"],
+                        "MP_pct": pending_peaks["MP_pct"],
+                        "Acid": pending_peaks["Acid"],
+                        "Basic": pending_peaks["Basic"],
+                    }
+
+                    if "QC" in sample_id.upper():
+                        qc_data.append(row)
+                    else:
+                        sample_data.append(row)
+
+                    # 清空缓存，准备下一个样品
+                    pending_peaks = None
+
+    print(f"icIEF提取完成 - QC数量:{len(qc_data)}  Sample数量:{len(sample_data)}")
+    return {
+        "qc": qc_data,
+        "samples": sample_data,
+        "seq": sequence_name,
+    }
+
+#================== icIEF Excel 生成 ==================
+def create_icief_excel(output_path, data, project, assay):
+    """
+    生成 icIEF Excel 报告
+    严格按照要求设定工作簿格式、修约与 RSD 公式写入
+    """
+    wb = Workbook()
+
+    qc_rows = data.get("qc", [])
+    sample_rows = data.get("samples", [])
+    seq_name = data.get("seq", "Unknown")
+    
+    # =========================================================
+    #                    工作表1：系统适用性
+    # =========================================================
+    ws_qc = wb.active
+    ws_qc.title = "系统适用性"
+    
+    # ---------- 表头设计（根据 icIEF 报告单设计） ----------
+    ws_qc.merge_cells('A1:E1')
+    ws_qc['A1'] = f"序列：{seq_name}"
+    ws_qc.merge_cells('A2:E2')
+    ws_qc['A2'] = "系统适用性"
+    ws_qc.merge_cells('A3:A4')
+    ws_qc['A3'] = "序列表中的名称"
+    ws_qc.merge_cells('B3:B4')
+    ws_qc['B3'] = "主峰pI"
+    ws_qc.merge_cells('C3:E3')
+    ws_qc['C3'] = "相对纯度(%)"
+    
+    # 修正列对应关系：C列为酸性，D列为主峰，E列为碱性
+    ws_qc['C4'] = "酸性峰"
+    ws_qc['D4'] = "主峰"
+    ws_qc['E4'] = "碱性峰"
+    
+    # ----------- QC 数据行 ----------
+    start_row = 5
+    for idx, qc in enumerate(qc_rows):
+        r = start_row + idx
+        ws_qc[f"A{r}"] = qc.get('Sample ID', '')
+        ws_qc[f"B{r}"] = qc.get('MP_pI')
+        
+        acid_v = qc.get('Acid')
+        mp_v = qc.get('MP_pct')
+        basic_v = qc.get('Basic')
+        
+        # 应用四舍六入修约，保留2位小数；缺失值填"N/D"
+        ws_qc[f"C{r}"] = pharmacopoeia_round(acid_v, 2) if acid_v is not None else "N/D"
+        ws_qc[f"D{r}"] = pharmacopoeia_round(mp_v, 2) if mp_v is not None else "N/D"
+        ws_qc[f"E{r}"] = pharmacopoeia_round(basic_v, 2) if basic_v is not None else "N/D"
+        
+    qc_last = start_row + len(qc_rows) - 1 if qc_rows else start_row - 1
+    
+    # ---------- RSD 行 ----------
+    rsd_row = qc_last + 1
+    ws_qc[f"A{rsd_row}"] = "前三针QCRSD（%）"
+    if len(qc_rows) >= 3:
+        # 使用 Excel 向上修约函数 ROUNDUP(计算值, 1) 来实现只进不舍保1位小数
+        ws_qc[f"B{rsd_row}"] = f'=IFERROR(ROUNDUP(STDEVA(B5:B7)/AVERAGE(B5:B7)*100, 1), "N/A")'
+        ws_qc[f"D{rsd_row}"] = f'=IFERROR(ROUNDUP(STDEVA(D5:D7)/AVERAGE(D5:D7)*100, 1), "N/A")'
+    else:
+        ws_qc[f"B{rsd_row}"] = "N/A"
+        ws_qc[f"D{rsd_row}"] = "N/A"
+    ws_qc[f"C{rsd_row}"] = "N/A"
+    ws_qc[f"E{rsd_row}"] = "N/A"
+
+    rsd_row2 = rsd_row + 1
+    ws_qc[f"A{rsd_row2}"] = "所有QC RSD（%）"
+    if len(qc_rows) >= 2:
+        ws_qc[f"B{rsd_row2}"] = f'=IFERROR(ROUNDUP(STDEVA(B5:B{qc_last})/AVERAGE(B5:B{qc_last})*100, 1), "N/A")'
+        ws_qc[f"D{rsd_row2}"] = f'=IFERROR(ROUNDUP(STDEVA(D5:D{qc_last})/AVERAGE(D5:D{qc_last})*100, 1), "N/A")'
+    else:
+        ws_qc[f"B{rsd_row2}"] = "N/A"
+        ws_qc[f"D{rsd_row2}"] = "N/A"
+    ws_qc[f"C{rsd_row2}"] = "N/A"
+    ws_qc[f"E{rsd_row2}"] = "N/A"
+    
+    # ---------- 主峰最大 pI 差值（ΔpI）----------
+    dpI_row = rsd_row2 + 1
+    ws_qc[f"A{dpI_row}"] = "最大pI差值（ΔpI）"
+    if len(qc_rows) >= 2:
+        # 添加缺失的 f 标志
+        ws_qc[f"B{dpI_row}"] = f"=MAX(B5:B{qc_last})-MIN(B5:B{qc_last})"
+    else:
+        ws_qc[f"B{dpI_row}"] = "N/A"
+    for col in ['C','D','E']: 
+        ws_qc[f"{col}{dpI_row}"] = "N/A"
+    
+    # ---------- 标准判断表 ----------
+    std_row = dpI_row + 1
+    ws_qc.merge_cells(f"A{std_row}:E{std_row}")
+    ws_qc[f"A{std_row}"] = "系统适用性标准及判断"
+
+    head_std = std_row + 1
+    ws_qc[f"A{head_std}"] = "序号"
+    ws_qc.merge_cells(f"B{head_std}:D{head_std}")
+    ws_qc[f"B{head_std}"] = "适应性条目"
+    ws_qc[f"E{head_std}"] = "结论"
+    
+    # 根据项目区分填写标准
+    if project == 'BF612001':
+        rules = [
+            ("1", "空白样品的两个pI Marker均被检出，并且两个pI Marker之间的区段无干扰峰。"),
+            ("2", "参比品主峰的峰面积百分比的RSD≤5.0%。"),
+            ("3", "参比品主峰的最大pI差值不大于0.10")
+        ]
+    else:
+        # 默认填写标准
+        rules = [
+            ("1", "空白样品的两个pI Marker均被检出，并且两个pI Marker之间的区段无干扰峰。"),
+            ("2", "参比品主峰的峰面积百分比的RSD≤5.0%。"),
+            ("3", "参比品主峰的最大pI差值不大于0.10")
+        ]
+        
+    curr_r = head_std + 1
+    # rules
+    for no, item in rules:
+        ws_qc[f"A{curr_r}"] = no
+        ws_qc.merge_cells(f"B{curr_r}:D{curr_r}")
+        ws_qc[f"B{curr_r}"] = item
+        ws_qc[f"E{curr_r}"] = ""
+        curr_r += 1
+       
+    ws_qc[f"A{curr_r}"] = "备注："
+    ws_qc.merge_cells(f"B{curr_r}:E{curr_r}")
+    
+    # =========================================================
+    #                    工作表2：检测报告单
+    # =========================================================    
+    ws_sample = wb.create_sheet("检测报告单")
+    ws_sample.merge_cells("A1:G1")
+    ws_sample["A1"] = "检测报告单"
+
+    ws_sample["A2"] = "项目代码"
+    ws_sample.merge_cells("B2:D2")
+    ws_sample["B2"] = project
+    ws_sample["E2"] = "请检单号"
+    ws_sample.merge_cells("F2:G2")
+
+    ws_sample["A3"] = "检验项目"
+    ws_sample.merge_cells("B3:D3")
+    ws_sample["B3"] = assay
+    ws_sample["E3"] = "报告日期"
+    ws_sample.merge_cells("F3:G3")
+    ws_sample["F3"] = datetime.now().strftime("%Y-%m-%d")
+    
+    ws_sample["A4"] = "备注"
+    ws_sample.merge_cells("B4:G4")
+    
+    ws_sample.merge_cells("A5:A6")
+    ws_sample["A5"] = "样品编号"
+    ws_sample.merge_cells("B5:B6")
+    ws_sample["B5"] = "样品序号"
+    ws_sample.merge_cells("C5:C6")
+    ws_sample["C5"] = "序列编号"
+    ws_sample.merge_cells("D5:G5")
+    ws_sample["D5"] = "检验结果"
+
+    ws_sample["D6"] = "主峰pI"
+    ws_sample["E6"] = "酸性峰（%）"
+    ws_sample["F6"] = "主峰（%）"
+    ws_sample["G6"] = "碱性峰（%）"
+    
+    # ---------- Sample 数据录入 ----------
+    row_idx = 7
+    for idx, s in enumerate(sample_rows, start=1):
+        ws_sample[f"A{row_idx}"] = ""
+        ws_sample[f"B{row_idx}"] = idx
+        ws_sample[f"C{row_idx}"] = s.get("Sample ID", "")
+
+        MP_pI_v = s.get("MP_pI")
+        acid_v = s.get("Acid")
+        mp_v = s.get("MP_pct")
+        basic_v = s.get("Basic")
+        
+        ws_sample[f"D{row_idx}"] = MP_pI_v if MP_pI_v else "N/D"
+        ws_sample[f"E{row_idx}"] = pharmacopoeia_round(acid_v, 2) if acid_v is not None else "N/D"
+        ws_sample[f"F{row_idx}"] = pharmacopoeia_round(mp_v, 2) if mp_v is not None else "N/D"
+        ws_sample[f"G{row_idx}"] = pharmacopoeia_round(basic_v, 2) if basic_v is not None else "N/D"
+
+        row_idx += 1
+
+    ws_sample[f"A{row_idx}"] = "报告人/日期"
+    ws_sample.merge_cells(f"B{row_idx}:C{row_idx}")
+    ws_sample[f"D{row_idx}"] = "审核人/日期"
+    ws_sample.merge_cells(f"E{row_idx}:G{row_idx}")
+    
+    # ===================================================
+    #                    字体与格式统一调整
+    # ===================================================
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value is not None:
+                    # 包含中文字符的设为楷体，其余西文/数字设为Times New Roman
+                    if re.search(r'[\u4e00-\u9fff]', str(cell.value)):
+                        # 兼容有粗体设定的表头
+                        if cell.font and cell.font.bold:
+                            cell.font = Font(name='楷体', size=11, bold=True)
+                        else:
+                            cell.font = Font(name='楷体', size=11)
+                    else:
+                        if cell.font and cell.font.bold:
+                            cell.font = Font(name='Times New Roman', size=11, bold=True)
+                        else:
+                            cell.font = Font(name='Times New Roman', size=11)
+                else:
+                    cell.font = Font(name='Times New Roman', size=11)
+                
+                # 均全局居中对齐
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # 特定表头强制大字号和加粗
+    ws_qc['A2'].font = Font(name='楷体', size=11, bold=True)
+    ws_sample['A1'].font = Font(name='楷体', size=20, bold=True)
+
+    # 适当拉宽列，提升阅读及打印效果
+    for col in ['A', 'B', 'C', 'D', 'E']:
+        ws_qc.column_dimensions[col].width = 20
+    for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+        ws_sample.column_dimensions[col].width = 18
+
+    # 注入溯源水印（如果工程中存在该函数调用）
+    if "inject_excel_watermark" in globals():
+        inject_excel_watermark(wb)
+        
+    wb.save(output_path)
 
 # ================== NR-CE 数据提取 ==================
 def extract_nr_ce_data(pdf_path, project=None):
@@ -3097,6 +3453,7 @@ EXTRACTOR_REGISTRY = {
     ('BF518', 'NR-CE'): (extract_nr_ce_data, False),
     ('BF612001', 'R-CE'): (extract_r_ce_data, False),  
     ('BF612001', 'NR-CE'): (extract_nr_ce_data, False),
+    ('BF612001', 'iCIEF'): (extract_icief_data, False),
     ('BF611', 'R-CE'): (extract_r_ce_data, False),
     ('BF611', 'NR-CE'): (extract_nr_ce_data, False),
 }
@@ -3223,6 +3580,21 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
             excel_filename = f"{base_name}_NR-CE_{timestamp}.xlsx"
             excel_path = os.path.join(output_folder, excel_filename)
             create_nr_ce_excel(excel_path, data_dict, extractor_kwargs.get('project'), extractor_kwargs.get('assay'))
+            msg = f"完成！处理 QC:{len(data_dict['qc'])} 个，样品:{len(data_dict['samples'])} 个"
+            if progress_callback:
+                progress_callback(100, msg)
+            return True, excel_path
+        #====================== iCIEF数据提取 ======================
+        elif extractor_func == extract_icief_data:
+            data_dict = extractor_func(pdf_path, project=extractor_kwargs.get('project'))
+            if not data_dict['qc'] and not data_dict['samples']:
+                return False, "未提取到任何 iCIEF 样品数据"
+            os.makedirs(output_folder, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            base_name = os.path.splitext(os.path.basename(pdf_path))[0]
+            excel_filename = f"{base_name}_iCIEF_{timestamp}.xlsx"
+            excel_path = os.path.join(output_folder, excel_filename)
+            create_icief_excel(excel_path, data_dict, extractor_kwargs.get('project'), extractor_kwargs.get('assay'))
             msg = f"完成！处理 QC:{len(data_dict['qc'])} 个，样品:{len(data_dict['samples'])} 个"
             if progress_callback:
                 progress_callback(100, msg)
