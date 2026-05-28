@@ -2504,6 +2504,7 @@ def extract_nglycan_data(pdf_path):
     raw_data = []  # 存储每个样品的原始行数据，每个元素为 (sample_name, name, rt, area)
     current_sample = None
     collecting = False
+    sequence_name = "unknown_sequence"  # 默认序列名，提取到后替换为真实值
 
     with pdfplumber.open(pdf_path) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
@@ -2518,7 +2519,18 @@ def extract_nglycan_data(pdf_path):
                     current_sample = None if "Blank" in raw_name else raw_name
                     collecting = False  # 新样品，重置表格收集标志
                     continue
-
+                if sequence_name == "unknown_sequence":
+                    match = re.search(r"Sample\s+Set\s+Name:\s*(.+)", line, re.IGNORECASE)
+                    if match:
+                        seq_raw = match.group(1).strip()
+                        # 同一行可能拼接了其他字段（如 Processed By / Acquired By），截断掉后续标签
+                        seq_raw = re.split(
+                            r"\s+(?:Processed\s+By|Acquired\s+By|Instrument\s+Method|Sample\s+Information)\s*:",
+                            seq_raw,
+                            flags=re.IGNORECASE
+                        )[0].strip()
+                        if seq_raw:
+                            sequence_name = seq_raw  # 获取序列名
                 if not current_sample:
                     continue
 
@@ -2585,27 +2597,31 @@ def extract_nglycan_data(pdf_path):
         all_names.append('Others')
 
     print(f"解析完成: QC样品数={len(qc_data)}, 普通样品数={len(sample_data)}, 糖型列表={all_names}")
-    return qc_data, sample_data, all_names
+    return qc_data, sample_data, all_names, sequence_name
 
 # ------------------ N-Glycan Excel 生成 ------------------
-def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_names):
+def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_names, assay='N-Glycan', data=None, sequence_name=None):
+    if sequence_name is None:
+        if isinstance(data, dict):
+            sequence_name = data.get('seq', 'Unknown_Sequence')
+        else:
+            sequence_name = 'Unknown_Sequence'
+
     wb = Workbook()
     ws_qc = wb.active
     ws_qc.title = "系统适用性(QC)"
-
     # 标题
     ws_qc.merge_cells('A1:E1')
-    ws_qc['A1'] = '系统适用性'
-    ws_qc['A1'].font = Font(size=14, bold=True)
-    ws_qc['A1'].alignment = Alignment(horizontal='center')
+    ws_qc['A1'] = f"系统适用性：{sequence_name}"
+    
+    
 
     # 列标题
     ws_qc.merge_cells('A2:C2')
     ws_qc['A2'] = '序列中的名称'
     ws_qc['D2'] = 'G0F_RT(min)'
     ws_qc['E2'] = 'G0F_%Area'
-    for col in ['A2','B2','C2','D2','E2']:
-        ws_qc[col].alignment = Alignment(horizontal='center')
+    
 
     # QC数据行
     start_row = 3
@@ -2625,13 +2641,13 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
         # 计算 RT 的 RSD
         rt_vals = [qc['gof_rt'] for qc in qc_data if qc.get('gof_rt') is not None]
         if len(rt_vals) >= 2:
-            rt_rsd = ceil_up_rsd(calculate_rsd(rt_vals), 2)
+            rt_rsd = ceil_up_rsd(calculate_rsd(rt_vals), 1)
         else:
             rt_rsd = None
         # 计算 %Area 的 RSD
         area_vals = [qc['gof_area'] for qc in qc_data if qc.get('gof_area') is not None]
         if len(area_vals) >= 2:
-            area_rsd = ceil_up_rsd(calculate_rsd(area_vals), 2)
+            area_rsd = ceil_up_rsd(calculate_rsd(area_vals), 1)
         else:
             area_rsd = None
         ws_qc.cell(row=rsd_row, column=4, value=rt_rsd)
@@ -2643,15 +2659,14 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
     # 系统适用性标准及判断结果
     ws_qc.merge_cells(f'A{next_row}:E{next_row}')
     ws_qc.cell(row=next_row, column=1, value='系统适用性标准及判断结果')
-    ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center')
+    
     header_row = next_row + 1
     ws_qc.cell(row=header_row, column=1, value='序号')
     ws_qc.merge_cells(f'B{header_row}:C{header_row}')
     ws_qc.cell(row=header_row, column=2, value='适应性条目')
     ws_qc.cell(row=header_row, column=4, value='接受标准')
     ws_qc.cell(row=header_row, column=5, value='是否符合')
-    for col in [1,2,4,5]:
-        ws_qc.cell(row=header_row, column=col).alignment = Alignment(horizontal='center')
+    
 
     # 根据项目填写标准（保持原逻辑）
     items = []
@@ -2682,88 +2697,110 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
         ws_qc.cell(row=r, column=4, value=std)
         ws_qc.cell(row=r, column=5, value='')
 
-    for col in range(1, 6):
-        ws_qc.column_dimensions[get_column_letter(col)].width = 20
+
 
     # ========== 检测报告单 ==========
-    ws_report = wb.create_sheet("检测报告单")
+    ws_rep = wb.create_sheet("检测报告单")
     num_glycans = len(all_glycan_names)
     last_col_letter = get_column_letter(3 + num_glycans)
 
     # 第一行：标题
-    ws_report.merge_cells(f'A1:{last_col_letter}1')
-    ws_report['A1'] = '检测报告单'
-    ws_report['A1'].font = Font(size=18, bold=True)
-    ws_report['A1'].alignment = Alignment(horizontal='center')
+    ws_rep.merge_cells(f'A1:{last_col_letter}1')
+    ws_rep['A1'] = '检测报告单'
+
 
     # 第二行：项目代码、请检单号
-    ws_report['A2'] = '项目代码'
-    ws_report.merge_cells(f'B2:D2')
-    ws_report['E2'] = '请检单号'
-    ws_report.merge_cells(f'F2:{last_col_letter}2')
+    ws_rep['A2'] = '项目代码'
+    ws_rep.merge_cells(f'B2:D2')
+    ws_rep['B2'] = project
+    ws_rep['E2'] = '请检单号'
+    ws_rep.merge_cells(f'F2:{last_col_letter}2')
 
     # 第三行：检验项目、报告日期
-    ws_report['A3'] = '检验项目'
-    ws_report.merge_cells(f'B3:D3')
-    ws_report['E3'] = '报告日期'
-    ws_report.merge_cells(f'F3:{last_col_letter}3')
-    ws_report[f'F3'] = datetime.now().strftime('%Y-%m-%d')
+    ws_rep['A3'] = '检验项目'
+    ws_rep.merge_cells(f'B3:D3')
+    ws_rep['B3'] = assay
+    ws_rep['E3'] = '报告日期'
+    ws_rep.merge_cells(f'F3:{last_col_letter}3')
+    ws_rep[f'F3'] = datetime.now().strftime('%Y-%m-%d')
 
     # 第四行：备注
-    ws_report['A4'] = '备注'
-    ws_report.merge_cells(f'B4:{last_col_letter}4')
+    ws_rep['A4'] = '备注'
+    ws_rep.merge_cells(f'B4:{last_col_letter}4')
 
     # 第五、六行：表头
-    ws_report.merge_cells('A5:A6')
-    ws_report['A5'] = '样品编号'
-    ws_report.merge_cells('B5:B6')
-    ws_report['B5'] = '样品序号'
-    ws_report.merge_cells('C5:C6')
-    ws_report['C5'] = '序列编号'
-    ws_report.merge_cells(f'D5:{last_col_letter}5')
-    ws_report['D5'] = 'N_Glycan_%Area'
+    ws_rep.merge_cells('A5:A6')
+    ws_rep['A5'] = '样品编号'
+    ws_rep.merge_cells('B5:B6')
+    ws_rep['B5'] = '样品序号'
+    ws_rep.merge_cells('C5:C6')
+    ws_rep['C5'] = '序列编号'
+    ws_rep.merge_cells(f'D5:{last_col_letter}5')
+    ws_rep['D5'] = 'N_Glycan_%Area'
 
     for idx, name in enumerate(all_glycan_names):
-        ws_report.cell(row=6, column=4+idx, value=name)
+        ws_rep.cell(row=6, column=4+idx, value=name)
 
     # 数据行
     current_row = 7
     # 根据项目决定小数位数
     decimal_places = 2 if project == 'BF521' else 1
     for seq, sample in enumerate(sample_data, start=1):
-        ws_report.cell(row=current_row, column=2, value=seq)
-        ws_report.cell(row=current_row, column=3, value=sample['sample_name'])
+        ws_rep.cell(row=current_row, column=2, value=seq)
+        ws_rep.cell(row=current_row, column=3, value=sample['sample_name'])
         gly = sample['glycans']
         for idx, name in enumerate(all_glycan_names):
             val = gly.get(name, 0.0)
             if val is not None:
                 # 使用药典修约规则，保留 decimal_places 位小数
                 rounded_val = pharmacopoeia_round(val, decimal_places)
-                ws_report.cell(row=current_row, column=4+idx, value=rounded_val)
+                ws_rep.cell(row=current_row, column=4+idx, value=rounded_val)
         current_row += 1
 
     # 最后一行：报告人/日期、审核人/日期
     last_row = current_row
-    ws_report.cell(row=last_row, column=1, value='报告人/日期')
-    ws_report.merge_cells(f'B{last_row}:E{last_row}')
-    ws_report.cell(row=last_row, column=6, value='审核人/日期')
+    ws_rep.cell(row=last_row, column=1, value='报告人/日期')
+    ws_rep.merge_cells(f'B{last_row}:E{last_row}')
+    ws_rep.cell(row=last_row, column=6, value='审核人/日期')
     if num_glycans >= 1:
-        ws_report.merge_cells(f'G{last_row}:{last_col_letter}{last_row}')
+        ws_rep.merge_cells(f'G{last_row}:{last_col_letter}{last_row}')
 
     # 字体、对齐
-    for row in ws_report.iter_rows():
-        for cell in row:
-            if cell.value:
-                if re.search(r'[\u4e00-\u9fff]', str(cell.value)):
-                    cell.font = Font(name='楷体')
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value is not None:
+                    # 包含中文字符的设为楷体，其余西文/数字设为Times New Roman
+                    if re.search(r'[\u4e00-\u9fff]', str(cell.value)):
+                        # 兼容有粗体设定的表头
+                        if cell.font and cell.font.bold:
+                            cell.font = Font(name='楷体', size=11, bold=True)
+                        else:
+                            cell.font = Font(name='楷体', size=11)
+                    else:
+                        if cell.font and cell.font.bold:
+                            cell.font = Font(name='Times New Roman', size=11, bold=True)
+                        else:
+                            cell.font = Font(name='Times New Roman', size=11)
                 else:
-                    cell.font = Font(name='Times New Roman')
-            else:
-                cell.font = Font(name='Times New Roman')
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.font = Font(name='Times New Roman', size=11)
+                
+                # 均全局居中对齐
+                cell.alignment = Alignment(horizontal='center', vertical='center')
 
-    for col in range(1, 4+num_glycans):
-        ws_report.column_dimensions[get_column_letter(col)].width = 15
+    # 特定表头强制大字号和加粗
+    ws_rep['A1'].font = Font(name='楷体', size=20, bold=True)
+    ws_qc['A2'].font = Font(name='楷体', size=11, bold=False)
+
+    # 适当拉宽列，提升阅读及打印效果
+    for col in ['A', 'B', 'C']:
+        ws_qc.column_dimensions[col].width = 23
+    for col in ['D', 'E']:
+        ws_qc.column_dimensions[col].width = 16
+    for col in ['A', 'B', 'C']:
+        ws_rep.column_dimensions[col].width = 20
+    for col in ['D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']:
+        ws_rep.column_dimensions[col].width = 10
     inject_excel_watermark(wb)
     wb.save(output_path)
 
@@ -2785,13 +2822,12 @@ def create_cex_excel(output_path, data, project, assay):
     # 第1行：序列信息
     ws_qc.merge_cells('A1:F1')
     ws_qc['A1'] = f"序列：{data['seq']}"
-    ws_qc['A1'].alignment = Alignment(horizontal='center', vertical='center')
+    
 
     # 第2行：标题
     ws_qc.merge_cells('A2:F2')
     ws_qc['A2'] = "系统适用性结果"
-    ws_qc['A2'].alignment = Alignment(horizontal='center', vertical='center')
-    ws_qc['A2'].font = Font(bold=True)
+    
 
     # 第3行：表头
     ws_qc.merge_cells('A3:B3')
@@ -2800,8 +2836,7 @@ def create_cex_excel(output_path, data, project, assay):
     ws_qc['D3'] = "主峰峰面积（μV*sec)"
     ws_qc['E3'] = "主峰纯度(%)"
     ws_qc['F3'] = "主峰理论塔板数"
-    for col in ['A3','B3','C3','D3','E3','F3']:
-        ws_qc[col].alignment = Alignment(horizontal='center', vertical='center')
+    
 
     # 数据行
     qc_list = data['qc']
@@ -2814,8 +2849,7 @@ def create_cex_excel(output_path, data, project, assay):
         ws_qc.cell(row=row, column=4, value=pharmacopoeia_round(qc['Area'], 0))
         ws_qc.cell(row=row, column=5, value=pharmacopoeia_round(qc['% Area'], 1))
         ws_qc.cell(row=row, column=6, value=pharmacopoeia_round(qc['USP'], 0))
-        for col in range(1,7):
-            ws_qc.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+        
 
     next_row = start_row + len(qc_list)
 
@@ -2836,8 +2870,7 @@ def create_cex_excel(output_path, data, project, assay):
         ws_qc.cell(row=next_row, column=4, value="N/A")
         ws_qc.cell(row=next_row, column=5, value=rsd_area_3)
         ws_qc.cell(row=next_row, column=6, value="N/A")
-        for col in [3,4,5,6]:
-            ws_qc.cell(row=next_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+        
         next_row += 1
 
         # 所有参比品RSD
@@ -2855,14 +2888,13 @@ def create_cex_excel(output_path, data, project, assay):
             ws_qc.cell(row=next_row, column=4, value="N/A")
             ws_qc.cell(row=next_row, column=5, value=rsd_area_all)
             ws_qc.cell(row=next_row, column=6, value="N/A")
-            for col in [3,4,5,6]:
-                ws_qc.cell(row=next_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+            
             next_row += 1
 
     # 系统适用性标准及判断结果
     ws_qc.merge_cells(f'A{next_row}:F{next_row}')
     ws_qc.cell(row=next_row, column=1, value="系统适用性标准及判断结果")
-    ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
+   
     next_row += 1
 
     # 表头
@@ -2871,8 +2903,7 @@ def create_cex_excel(output_path, data, project, assay):
     ws_qc.cell(row=next_row, column=2, value="适应性条目")
     ws_qc.cell(row=next_row, column=5, value="接受标准")
     ws_qc.cell(row=next_row, column=6, value="是否符合")
-    for col in [1,2,5,6]:
-        ws_qc.cell(row=next_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+    
     next_row += 1
 
     # 根据项目确定适应性条目
@@ -2902,8 +2933,7 @@ def create_cex_excel(output_path, data, project, assay):
         ws_qc.cell(row=next_row, column=2, value=item[1])
         ws_qc.cell(row=next_row, column=5, value=item[2])
         ws_qc.cell(row=next_row, column=6, value="")  # 留空手动填写
-        for col in [1,2,5,6]:
-            ws_qc.cell(row=next_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+        
         next_row += 1
 
     # 设置列宽
@@ -2915,89 +2945,88 @@ def create_cex_excel(output_path, data, project, assay):
     ws_qc.column_dimensions['F'].width = 22
 
     # ---------- 工作表2：检测报告单 ----------
-    ws_report = wb.create_sheet("检测报告单")
+    ws_rep= wb.create_sheet("检测报告单")
     # 第1行：标题
-    ws_report.merge_cells('A1:F1')
-    ws_report['A1'] = "检测报告单"
-    ws_report['A1'].font = Font(size=20, bold=True)
-    ws_report['A1'].alignment = Alignment(horizontal='center', vertical='center')
+    ws_rep.merge_cells('A1:F1')
+    ws_rep['A1'] = "检测报告单"
+    
 
     # 第2行：项目代码、请检单号
-    ws_report['A2'] = "项目代码"
-    ws_report.merge_cells('B2:C2')
-    ws_report.cell(row=2, column=2, value=project)
-    ws_report['D2'] = "请检单号"
-    ws_report.merge_cells('E2:F2')
+    ws_rep['A2'] = "项目代码"
+    ws_rep.merge_cells('B2:C2')
+    ws_rep.cell(row=2, column=2, value=project)
+    ws_rep['D2'] = "请检单号"
+    ws_rep.merge_cells('E2:F2')
     # 请检单号留空
 
     # 第3行：检验项目、报告日期
-    ws_report['A3'] = "检验项目"
-    ws_report.merge_cells('B3:C3')
-    ws_report.cell(row=3, column=2, value=assay)
-    ws_report['D3'] = "报告日期"
-    ws_report.merge_cells('E3:F3')
-    ws_report.cell(row=3, column=5, value=datetime.now().strftime('%Y-%m-%d'))
+    ws_rep['A3'] = "检验项目"
+    ws_rep.merge_cells('B3:C3')
+    ws_rep.cell(row=3, column=2, value=assay)
+    ws_rep['D3'] = "报告日期"
+    ws_rep.merge_cells('E3:F3')
+    ws_rep.cell(row=3, column=5, value=datetime.now().strftime('%Y-%m-%d'))
 
     # 第4行：备注
-    ws_report['A4'] = "备注"
-    ws_report.merge_cells('B4:F4')
+    ws_rep['A4'] = "备注"
+    ws_rep.merge_cells('B4:F4')
 
     # 第5-6行：表头
-    ws_report.merge_cells('A5:A6')
-    ws_report['A5'] = "样品编号"
-    ws_report.merge_cells('B5:B6')
-    ws_report['B5'] = "样品序号"
-    ws_report.merge_cells('C5:C6')
-    ws_report['C5'] = "序列编号"
-    ws_report.merge_cells('D5:F5')
-    ws_report['D5'] = "检验结果"
-    ws_report['D6'] = "酸性区（%）"
-    ws_report['E6'] = "主峰（%）"
-    ws_report['F6'] = "碱性区（%）"
+    ws_rep.merge_cells('A5:A6')
+    ws_rep['A5'] = "样品编号"
+    ws_rep.merge_cells('B5:B6')
+    ws_rep['B5'] = "样品序号"
+    ws_rep.merge_cells('C5:C6')
+    ws_rep['C5'] = "序列编号"
+    ws_rep.merge_cells('D5:F5')
+    ws_rep['D5'] = "检验结果"
+    ws_rep['D6'] = "酸性区（%）"
+    ws_rep['E6'] = "主峰（%）"
+    ws_rep['F6'] = "碱性区（%）"
 
     for col in ['A5','B5','C5','D5','D6','E6','F6']:
-        ws_report[col].alignment = Alignment(horizontal='center', vertical='center')
+        ws_rep[col].alignment = Alignment(horizontal='center', vertical='center')
 
     # 数据行
     start_row = 7
     summary_list = data['summary']
     for idx, s in enumerate(summary_list, start=1):
         row = start_row + idx - 1
-        ws_report.cell(row=row, column=1, value="")  # 样品编号留空
-        ws_report.cell(row=row, column=2, value=idx)
-        ws_report.cell(row=row, column=3, value=s['Sample Name'])
+        ws_rep.cell(row=row, column=1, value="")  # 样品编号留空
+        ws_rep.cell(row=row, column=2, value=idx)
+        ws_rep.cell(row=row, column=3, value=s['Sample Name'])
 
         acidic_val = s['Acidic'] if s['Acidic'] is not None else None
         main_val = s['Main'] if s['Main'] is not None else None
         basic_val = s['Basic'] if s['Basic'] is not None else None
 
-        ws_report.cell(row=row, column=4, value=pharmacopoeia_round(acidic_val, 1) if acidic_val is not None else "N/D")
-        ws_report.cell(row=row, column=5, value=pharmacopoeia_round(main_val, 1) if main_val is not None else "N/D")
-        ws_report.cell(row=row, column=6, value=pharmacopoeia_round(basic_val, 1) if basic_val is not None else "N/D")
+        ws_rep.cell(row=row, column=4, value=pharmacopoeia_round(acidic_val, 1) if acidic_val is not None else "N/D")
+        ws_rep.cell(row=row, column=5, value=pharmacopoeia_round(main_val, 1) if main_val is not None else "N/D")
+        ws_rep.cell(row=row, column=6, value=pharmacopoeia_round(basic_val, 1) if basic_val is not None else "N/D")
 
         for col in range(1,7):
-            ws_report.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+            ws_rep.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
 
     # 末尾行：报告人/日期、审核人/日期
     last_row = start_row + len(summary_list)
-    ws_report.cell(row=last_row, column=1, value="报告人/日期")
-    ws_report.merge_cells(f'B{last_row}:C{last_row}')
-    ws_report.cell(row=last_row, column=4, value="审核人/日期")
-    ws_report.merge_cells(f'E{last_row}:F{last_row}')
+    ws_rep.cell(row=last_row, column=1, value="报告人/日期")
+    ws_rep.merge_cells(f'B{last_row}:C{last_row}')
+    ws_rep.cell(row=last_row, column=4, value="审核人/日期")
+    ws_rep.merge_cells(f'E{last_row}:F{last_row}')
 
     for col in [1,4]:
-        ws_report.cell(row=last_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+        ws_rep.cell(row=last_row, column=col).alignment = Alignment(horizontal='center', vertical='center')
 
     # 设置列宽
-    ws_report.column_dimensions['A'].width = 15
-    ws_report.column_dimensions['B'].width = 12
-    ws_report.column_dimensions['C'].width = 30
-    ws_report.column_dimensions['D'].width = 15
-    ws_report.column_dimensions['E'].width = 15
-    ws_report.column_dimensions['F'].width = 15
+    ws_rep.column_dimensions['A'].width = 15
+    ws_rep.column_dimensions['B'].width = 12
+    ws_rep.column_dimensions['C'].width = 30
+    ws_rep.column_dimensions['D'].width = 15
+    ws_rep.column_dimensions['E'].width = 15
+    ws_rep.column_dimensions['F'].width = 15
 
     # ---------- 统一字体样式 ----------
-    for sheet in [ws_qc, ws_report]:
+    for sheet in wb.worksheets:
         for row in sheet.iter_rows():
             for cell in row:
                 if cell.value is not None:
@@ -3009,6 +3038,14 @@ def create_cex_excel(output_path, data, project, assay):
                 else:
                     cell.font = Font(name='Times New Roman', size=11)
                 cell.alignment = Alignment(horizontal='center', vertical='center')
+    ws_rep['A1'].font = Font(name='楷体', size=20, bold=True)
+    ws_qc['A2'].font = Font(name='楷体', size=11, bold=False) 
+    for col in ['A', 'B', 'E', 'F', 'G', 'H', 'I']:
+        ws_qc.column_dimensions[col].width = 16
+    for col in ['C', 'D']:
+        ws_qc.column_dimensions[col].width = 20
+    for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
+        ws_rep.column_dimensions[col].width = 16           
     inject_excel_watermark(wb)
     wb.save(output_path)
 # ------------------ Titer 稳健提取（文本Token解析） ------------------
@@ -3471,7 +3508,7 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
     try:
         # ===================== N-Glycan 数据提取 =====================
         if extractor_func == extract_nglycan_data:
-            qc_data, sample_data, glycan_names = extractor_func(pdf_path)
+            qc_data, sample_data, glycan_names, sequence_name = extractor_func(pdf_path)
             if not sample_data and not qc_data:
                 return False, "未提取到任何样品数据"
             project = extractor_kwargs.get('project', 'BF4182')
@@ -3480,7 +3517,15 @@ def process_pdf(pdf_path, output_folder, extractor_func, extractor_kwargs, progr
             base_name = os.path.splitext(os.path.basename(pdf_path))[0]
             excel_filename = f"{base_name}_N-Glycan_{timestamp}.xlsx"
             excel_path = os.path.join(output_folder, excel_filename)
-            create_nglycan_excel(excel_path, project, qc_data, sample_data, glycan_names)
+            create_nglycan_excel(
+                excel_path,
+                project,
+                qc_data,
+                sample_data,
+                glycan_names,
+                assay=extractor_kwargs.get('assay', 'N-Glycan'),
+                sequence_name=sequence_name
+            )
             msg = f"完成！处理 QC:{len(qc_data)} 个，样品:{len(sample_data)} 个"
             if progress_callback:
                 progress_callback(100, msg)
