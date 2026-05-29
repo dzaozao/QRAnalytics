@@ -1933,18 +1933,19 @@ def create_sec_bf611_excel(output_path, data, project, assay):
 
     next_row = start_row + len(qc_list)
 
-    # RSD行
+    # RSD行（写入Excel公式）
     if len(qc_list) >= 3:
         ws_qc.merge_cells(f'A{next_row}:B{next_row}')
         ws_qc.cell(row=next_row, column=1, value="系统适用性RSD（%）")
-        rt_vals_3 = [qc.get('RT') for qc in qc_list[:3] if qc.get('RT') is not None]
-        area_pct_vals_3 = [qc.get('% Area') for qc in qc_list[:3] if qc.get('% Area') is not None]
-        rsd_rt_3 = ceil_up_rsd(calculate_rsd(rt_vals_3)) if len(rt_vals_3) >= 2 else None
-        rsd_area_3 = ceil_up_rsd(calculate_rsd(area_pct_vals_3)) if len(area_pct_vals_3) >= 2 else None
-
-        ws_qc.cell(row=next_row, column=3, value=rsd_rt_3)
+        ws_qc.cell(
+            row=next_row, column=3,
+            value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{start_row+2})/AVERAGE(C{start_row}:C{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.cell(row=next_row, column=4, value="N/A")
-        ws_qc.cell(row=next_row, column=5, value=rsd_area_3)
+        ws_qc.cell(
+            row=next_row, column=5,
+            value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{start_row+2})/AVERAGE(E{start_row}:E{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.merge_cells(f'F{next_row}:H{next_row}')
         ws_qc.cell(row=next_row, column=6, value="N/A")
         for col in [3,4,5,6]:
@@ -1954,14 +1955,16 @@ def create_sec_bf611_excel(output_path, data, project, assay):
         if len(qc_list) >= 2:
             ws_qc.merge_cells(f'A{next_row}:B{next_row}')
             ws_qc.cell(row=next_row, column=1, value="所有参比品RSD（%）")
-            rt_vals_all = [qc.get('RT') for qc in qc_list if qc.get('RT') is not None]
-            area_pct_vals_all = [qc.get('% Area') for qc in qc_list if qc.get('% Area') is not None]
-            rsd_rt_all = ceil_up_rsd(calculate_rsd(rt_vals_all)) if len(rt_vals_all) >= 2 else None
-            rsd_area_all = ceil_up_rsd(calculate_rsd(area_pct_vals_all)) if len(area_pct_vals_all) >= 2 else None
-
-            ws_qc.cell(row=next_row, column=3, value=rsd_rt_all)
+            last_qc_row = start_row + len(qc_list) - 1
+            ws_qc.cell(
+                row=next_row, column=3,
+                value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{last_qc_row})/AVERAGE(C{start_row}:C{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.cell(row=next_row, column=4, value="N/A")
-            ws_qc.cell(row=next_row, column=5, value=rsd_area_all)
+            ws_qc.cell(
+                row=next_row, column=5,
+                value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{last_qc_row})/AVERAGE(E{start_row}:E{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.merge_cells(f'F{next_row}:H{next_row}')
             ws_qc.cell(row=next_row, column=6, value="N/A")
             for col in [3,4,5,6]:
@@ -2153,21 +2156,22 @@ def create_sec_excel(output_path, data, project, assay):
 
     next_row = start_row + len(qc_list)
 
-    # RSD 行
+    # RSD 行（写入Excel公式）
     if len(qc_list) >= 3:
         # 系统适用性RSD（前3针）
         ws_qc.merge_cells(f'A{next_row}:B{next_row}')
         ws_qc.cell(row=next_row, column=1, value="系统适用性RSD（%）")
         ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
 
-        rt_vals_3 = [qc['RT'] for qc in qc_list[:3] if qc['RT'] is not None]
-        area_pct_vals_3 = [qc['% Area'] for qc in qc_list[:3] if qc['% Area'] is not None]
-        rsd_rt_3 = ceil_up_rsd(calculate_rsd(rt_vals_3)) if len(rt_vals_3) >= 2 else None
-        rsd_area_3 = ceil_up_rsd(calculate_rsd(area_pct_vals_3)) if len(area_pct_vals_3) >= 2 else None
-
-        ws_qc.cell(row=next_row, column=3, value=rsd_rt_3)
+        ws_qc.cell(
+            row=next_row, column=3,
+            value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{start_row+2})/AVERAGE(C{start_row}:C{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.cell(row=next_row, column=4, value="N/A")
-        ws_qc.cell(row=next_row, column=5, value=rsd_area_3)
+        ws_qc.cell(
+            row=next_row, column=5,
+            value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{start_row+2})/AVERAGE(E{start_row}:E{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.cell(row=next_row, column=6, value="N/A")
         ws_qc.cell(row=next_row, column=7, value="N/A")
         for col in [3,4,5,6,7]:
@@ -2180,14 +2184,16 @@ def create_sec_excel(output_path, data, project, assay):
             ws_qc.cell(row=next_row, column=1, value="所有参比品RSD（%）")
             ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
 
-            rt_vals_all = [qc['RT'] for qc in qc_list if qc['RT'] is not None]
-            area_pct_vals_all = [qc['% Area'] for qc in qc_list if qc['% Area'] is not None]
-            rsd_rt_all = ceil_up_rsd(calculate_rsd(rt_vals_all)) if len(rt_vals_all) >= 2 else None
-            rsd_area_all = ceil_up_rsd(calculate_rsd(area_pct_vals_all)) if len(area_pct_vals_all) >= 2 else None
-
-            ws_qc.cell(row=next_row, column=3, value=rsd_rt_all)
+            last_qc_row = start_row + len(qc_list) - 1
+            ws_qc.cell(
+                row=next_row, column=3,
+                value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{last_qc_row})/AVERAGE(C{start_row}:C{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.cell(row=next_row, column=4, value="N/A")
-            ws_qc.cell(row=next_row, column=5, value=rsd_area_all)
+            ws_qc.cell(
+                row=next_row, column=5,
+                value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{last_qc_row})/AVERAGE(E{start_row}:E{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.cell(row=next_row, column=6, value="N/A")
             ws_qc.cell(row=next_row, column=7, value="N/A")
             for col in [3,4,5,6,7]:
@@ -2502,6 +2508,7 @@ def extract_nglycan_data(pdf_path):
     """
     print("开始解析N-Glycan PDF（文本行解析模式）...")
     raw_data = []  # 存储每个样品的原始行数据，每个元素为 (sample_name, name, rt, area)
+    qc_g1fb_resolution = {}  # QC样品的G1Fb分离度，sample_name -> [resolution, ...]
     current_sample = None
     collecting = False
     sequence_name = "unknown_sequence"  # 默认序列名，提取到后替换为真实值
@@ -2533,6 +2540,19 @@ def extract_nglycan_data(pdf_path):
                             sequence_name = seq_raw  # 获取序列名
                 if not current_sample:
                     continue
+
+                # 2.1 提取QC样品峰表中 G1Fb 的 Resolution（用于系统适用性）
+                # 峰表典型行: "11 G1Fb 35.730 889580 7.2 35090 47910 2.32 0.87"
+                if "QC" in current_sample.upper() and "G1FB" in line.upper():
+                    parts = line.split()
+                    upper_parts = [p.upper() for p in parts]
+                    if "G1FB" in upper_parts:
+                        idx = upper_parts.index("G1FB")
+                        # G1Fb 后至少应有: RT, Area, %Area, Height, USP Plate Count, Resolution
+                        if len(parts) > idx + 6:
+                            res_val = safe_float(parts[idx + 6])
+                            if res_val is not None:
+                                qc_g1fb_resolution.setdefault(current_sample, []).append(res_val)
 
                 # 2. 定位表格标题
                 if "Component Summary Table N_Glycan" in line:
@@ -2567,15 +2587,21 @@ def extract_nglycan_data(pdf_path):
     sample_glycans = {}
     qc_data = []
     all_names = set()
+    qc_resolution_index = {}  # 处理同名QC（如都叫QC）时按出现顺序匹配分离度
 
     for sample_name, name, rt, area in raw_data:
         if "QC" in sample_name.upper():
             # QC 样品只记录 G0F
             if name.upper() == "G0F":
+                res_list = qc_g1fb_resolution.get(sample_name, [])
+                curr_idx = qc_resolution_index.get(sample_name, 0)
+                g1fb_res = res_list[curr_idx] if curr_idx < len(res_list) else None
+                qc_resolution_index[sample_name] = curr_idx + 1
                 qc_data.append({
                     'sample_name': sample_name,
                     'gof_rt': rt,
-                    'gof_area': area
+                    'gof_area': area,
+                    'g1fb_resolution': g1fb_res
                 })
         else:
             # 普通样品
@@ -2611,7 +2637,7 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
     ws_qc = wb.active
     ws_qc.title = "系统适用性(QC)"
     # 标题
-    ws_qc.merge_cells('A1:E1')
+    ws_qc.merge_cells('A1:F1')
     ws_qc['A1'] = f"系统适用性：{sequence_name}"
     
     
@@ -2621,6 +2647,7 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
     ws_qc['A2'] = '序列中的名称'
     ws_qc['D2'] = 'G0F_RT(min)'
     ws_qc['E2'] = 'G0F_%Area'
+    ws_qc['F2'] = 'G1Fb与G1Fa的分离度'
     
 
     # QC数据行
@@ -2631,33 +2658,34 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
         ws_qc.cell(row=row, column=1, value=qc['sample_name'])
         ws_qc.cell(row=row, column=4, value=pharmacopoeia_round(qc['gof_rt'], 3) if qc['gof_rt'] else None)
         ws_qc.cell(row=row, column=5, value=pharmacopoeia_round(qc['gof_area'], 1) if qc['gof_area'] else None)
+        ws_qc.cell(
+            row=row,
+            column=6,
+            value=pharmacopoeia_round(qc.get('g1fb_resolution'), 2) if qc.get('g1fb_resolution') is not None else None
+        )
 
-    # RSD行（使用Python计算，只进不舍保留两位小数）
+    # RSD行（写入Excel公式）
     next_row = start_row + len(qc_data)
     if len(qc_data) >= 2:
         rsd_row = next_row
         ws_qc.merge_cells(f'A{rsd_row}:C{rsd_row}')
         ws_qc.cell(row=rsd_row, column=1, value='系统适用性RSD(%)')
-        # 计算 RT 的 RSD
-        rt_vals = [qc['gof_rt'] for qc in qc_data if qc.get('gof_rt') is not None]
-        if len(rt_vals) >= 2:
-            rt_rsd = ceil_up_rsd(calculate_rsd(rt_vals), 1)
-        else:
-            rt_rsd = None
-        # 计算 %Area 的 RSD
-        area_vals = [qc['gof_area'] for qc in qc_data if qc.get('gof_area') is not None]
-        if len(area_vals) >= 2:
-            area_rsd = ceil_up_rsd(calculate_rsd(area_vals), 1)
-        else:
-            area_rsd = None
-        ws_qc.cell(row=rsd_row, column=4, value=rt_rsd)
-        ws_qc.cell(row=rsd_row, column=5, value=area_rsd)
+        qc_last_row = start_row + len(qc_data) - 1
+        ws_qc.cell(
+            row=rsd_row, column=4,
+            value=f'=IFERROR(ROUNDUP(STDEVA(D{start_row}:D{qc_last_row})/AVERAGE(D{start_row}:D{qc_last_row})*100, 1), "N/A")'
+        )
+        ws_qc.cell(
+            row=rsd_row, column=5,
+            value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{qc_last_row})/AVERAGE(E{start_row}:E{qc_last_row})*100, 1), "N/A")'
+        )
+        ws_qc.cell(row=rsd_row, column=6, value='N/A')
         next_row = rsd_row + 1
     else:
         next_row = start_row + len(qc_data) + 1
 
     # 系统适用性标准及判断结果
-    ws_qc.merge_cells(f'A{next_row}:E{next_row}')
+    ws_qc.merge_cells(f'A{next_row}:F{next_row}')
     ws_qc.cell(row=next_row, column=1, value='系统适用性标准及判断结果')
     
     header_row = next_row + 1
@@ -2665,6 +2693,7 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
     ws_qc.merge_cells(f'B{header_row}:C{header_row}')
     ws_qc.cell(row=header_row, column=2, value='适应性条目')
     ws_qc.cell(row=header_row, column=4, value='接受标准')
+    ws_qc.merge_cells(f'E{header_row}:F{header_row}')
     ws_qc.cell(row=header_row, column=5, value='是否符合')
     
 
@@ -2695,6 +2724,7 @@ def create_nglycan_excel(output_path, project, qc_data, sample_data, all_glycan_
         ws_qc.merge_cells(f'B{r}:C{r}')
         ws_qc.cell(row=r, column=2, value=desc)
         ws_qc.cell(row=r, column=4, value=std)
+        ws_qc.merge_cells(f'E{r}:F{r}')
         ws_qc.cell(row=r, column=5, value='')
 
 
@@ -2853,22 +2883,22 @@ def create_cex_excel(output_path, data, project, assay):
 
     next_row = start_row + len(qc_list)
 
-    # RSD 行（只针对前3针和全部）
+    # RSD 行（写入Excel公式）
     if len(qc_list) >= 3:
         # 系统适用性RSD（前3针）
         ws_qc.merge_cells(f'A{next_row}:B{next_row}')
         ws_qc.cell(row=next_row, column=1, value="系统适用性RSD（%）")
         ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
 
-        # 提取前3针数据
-        rt_vals_3 = [qc['RT'] for qc in qc_list[:3] if qc['RT'] is not None]
-        area_pct_vals_3 = [qc['% Area'] for qc in qc_list[:3] if qc['% Area'] is not None]
-        rsd_rt_3 = ceil_up_rsd(calculate_rsd(rt_vals_3)) if len(rt_vals_3) >= 2 else None
-        rsd_area_3 = ceil_up_rsd(calculate_rsd(area_pct_vals_3)) if len(area_pct_vals_3) >= 2 else None
-
-        ws_qc.cell(row=next_row, column=3, value=rsd_rt_3)
+        ws_qc.cell(
+            row=next_row, column=3,
+            value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{start_row+2})/AVERAGE(C{start_row}:C{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.cell(row=next_row, column=4, value="N/A")
-        ws_qc.cell(row=next_row, column=5, value=rsd_area_3)
+        ws_qc.cell(
+            row=next_row, column=5,
+            value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{start_row+2})/AVERAGE(E{start_row}:E{start_row+2})*100, 1), "N/A")'
+        )
         ws_qc.cell(row=next_row, column=6, value="N/A")
         
         next_row += 1
@@ -2879,14 +2909,16 @@ def create_cex_excel(output_path, data, project, assay):
             ws_qc.cell(row=next_row, column=1, value="所有参比品RSD（%）")
             ws_qc.cell(row=next_row, column=1).alignment = Alignment(horizontal='center', vertical='center')
 
-            rt_vals_all = [qc['RT'] for qc in qc_list if qc['RT'] is not None]
-            area_pct_vals_all = [qc['% Area'] for qc in qc_list if qc['% Area'] is not None]
-            rsd_rt_all = ceil_up_rsd(calculate_rsd(rt_vals_all)) if len(rt_vals_all) >= 2 else None
-            rsd_area_all = ceil_up_rsd(calculate_rsd(area_pct_vals_all)) if len(area_pct_vals_all) >= 2 else None
-
-            ws_qc.cell(row=next_row, column=3, value=rsd_rt_all)
+            last_qc_row = start_row + len(qc_list) - 1
+            ws_qc.cell(
+                row=next_row, column=3,
+                value=f'=IFERROR(ROUNDUP(STDEVA(C{start_row}:C{last_qc_row})/AVERAGE(C{start_row}:C{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.cell(row=next_row, column=4, value="N/A")
-            ws_qc.cell(row=next_row, column=5, value=rsd_area_all)
+            ws_qc.cell(
+                row=next_row, column=5,
+                value=f'=IFERROR(ROUNDUP(STDEVA(E{start_row}:E{last_qc_row})/AVERAGE(E{start_row}:E{last_qc_row})*100, 1), "N/A")'
+            )
             ws_qc.cell(row=next_row, column=6, value="N/A")
             
             next_row += 1
@@ -3318,15 +3350,21 @@ def create_titer_excel(output_path, data, project, assay, qc_theo_amount):
         ws_qc.cell(row=curr_row, column=6, value=rec)
         curr_row += 1
 
-    # QC RSD 计算
+    # QC RSD 计算（写入Excel公式）
     ws_qc.cell(row=curr_row, column=1, value="系统适用性RSD（%）")
     if len(data['qc']) >= 3:
-        rt_vals_3 = [qc['RT'] for qc in data['qc'][:3] if qc.get('RT')]
-        area_vals_3 = [qc['Area'] for qc in data['qc'][:3] if qc.get('Area')]
-        amt_vals_3 = [qc['Amount'] for qc in data['qc'][:3] if qc.get('Amount')]
-        ws_qc.cell(row=curr_row, column=2, value=ceil_up_rsd(calculate_rsd(rt_vals_3)))
-        ws_qc.cell(row=curr_row, column=3, value=ceil_up_rsd(calculate_rsd(area_vals_3)))
-        ws_qc.cell(row=curr_row, column=4, value=ceil_up_rsd(calculate_rsd(amt_vals_3)))
+        ws_qc.cell(
+            row=curr_row, column=2,
+            value=f'=IFERROR(ROUNDUP(STDEVA(B{qc_start_row}:B{qc_start_row+2})/AVERAGE(B{qc_start_row}:B{qc_start_row+2})*100, 1), "N/A")'
+        )
+        ws_qc.cell(
+            row=curr_row, column=3,
+            value=f'=IFERROR(ROUNDUP(STDEVA(C{qc_start_row}:C{qc_start_row+2})/AVERAGE(C{qc_start_row}:C{qc_start_row+2})*100, 1), "N/A")'
+        )
+        ws_qc.cell(
+            row=curr_row, column=4,
+            value=f'=IFERROR(ROUNDUP(STDEVA(D{qc_start_row}:D{qc_start_row+2})/AVERAGE(D{qc_start_row}:D{qc_start_row+2})*100, 1), "N/A")'
+        )
     else:
         ws_qc.cell(row=curr_row, column=2, value="N/A")
         ws_qc.cell(row=curr_row, column=3, value="N/A")
@@ -3337,12 +3375,19 @@ def create_titer_excel(output_path, data, project, assay, qc_theo_amount):
 
     ws_qc.cell(row=curr_row, column=1, value="所有质控的RSD（%）")
     if len(data['qc']) >= 2:
-        rt_vals_all = [qc['RT'] for qc in data['qc'] if qc.get('RT')]
-        area_vals_all = [qc['Area'] for qc in data['qc'] if qc.get('Area')]
-        amt_vals_all = [qc['Amount'] for qc in data['qc'] if qc.get('Amount')]
-        ws_qc.cell(row=curr_row, column=2, value=ceil_up_rsd(calculate_rsd(rt_vals_all)))
-        ws_qc.cell(row=curr_row, column=3, value=ceil_up_rsd(calculate_rsd(area_vals_all)))
-        ws_qc.cell(row=curr_row, column=4, value=ceil_up_rsd(calculate_rsd(amt_vals_all)))
+        qc_end_row = qc_start_row + len(data['qc']) - 1
+        ws_qc.cell(
+            row=curr_row, column=2,
+            value=f'=IFERROR(ROUNDUP(STDEVA(B{qc_start_row}:B{qc_end_row})/AVERAGE(B{qc_start_row}:B{qc_end_row})*100, 1), "N/A")'
+        )
+        ws_qc.cell(
+            row=curr_row, column=3,
+            value=f'=IFERROR(ROUNDUP(STDEVA(C{qc_start_row}:C{qc_end_row})/AVERAGE(C{qc_start_row}:C{qc_end_row})*100, 1), "N/A")'
+        )
+        ws_qc.cell(
+            row=curr_row, column=4,
+            value=f'=IFERROR(ROUNDUP(STDEVA(D{qc_start_row}:D{qc_end_row})/AVERAGE(D{qc_start_row}:D{qc_end_row})*100, 1), "N/A")'
+        )
     else:
         ws_qc.cell(row=curr_row, column=2, value="N/A")
         ws_qc.cell(row=curr_row, column=3, value="N/A")
