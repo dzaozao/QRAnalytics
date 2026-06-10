@@ -1989,9 +1989,9 @@ def create_sec_bf611_excel(output_path, data, project, assay):
     items = [
         ("1", "空白对照无干扰", "无干扰"),
         ("2", "3针系统适用性参比品溶液及所有参比品溶液，主峰保留时间RSD", "≤5.0%"),
-        ("3", "3针系统适用性参比品溶液及所有参比品溶液，主峰的纯度RSD", "≤2.0%"),
+        ("3", "3针系统适用性参比品溶液及所有参比品溶液，主峰的纯度RSD", "≤5.0%"),
         ("4", "参比品溶液主峰理论塔板数", "≥1500"),
-        ("5", "参比品溶液主峰与其他峰之间的分离度（相邻峰的峰高/主峰与相邻峰的谷高）", "≥1.2")
+        ("5", "参比品溶液主峰与其他峰之间的分离度（相邻峰的峰高/主峰与相邻峰的谷高）", "≥1.0")
     ]
 
     for item in items:
@@ -2038,8 +2038,8 @@ def create_sec_bf611_excel(output_path, data, project, assay):
     ws_report['C5'] = "序列编号"
     ws_report.merge_cells('D5:G5')
     ws_report['D5'] = "检验结果"
-    ws_report['D6'] = "二聚体（%）"
-    ws_report['E6'] = "单体（%）"
+    ws_report['D6'] = "单体（%）"
+    ws_report['E6'] = "二聚体（%）"
     ws_report['F6'] = "多聚体（%）"
     ws_report['G6'] = "其他片段（%）"
     for col in ['A5','B5','C5','D5','D6','E6','F6','G6']:
